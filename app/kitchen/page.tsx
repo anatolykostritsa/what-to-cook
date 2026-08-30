@@ -13,19 +13,5 @@ export default async function KitchenPage() {
     redirect("/login");
   }
 
-  const { data: memberships } = await supabase
-    .from("household_members")
-    .select("household_id, role")
-    .eq("user_id", user.id);
-
-  const membership = memberships?.[0];
-
-  return (
-    <KitchenApp
-      userId={user.id}
-      email={user.email ?? ""}
-      householdId={membership?.household_id ?? null}
-      role={membership?.role ?? null}
-    />
-  );
+  return <KitchenApp />;
 }

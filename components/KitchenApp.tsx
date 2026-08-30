@@ -1,352 +1,260 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import ProductList from "./ProductList";
-import ShoppingList from "./ShoppingList";
-import RecipeSuggestions from "./RecipeSuggestions";
 
-type Product = {
+type Household = {
   id: string;
   name: string;
-  quantity: number | null;
-  unit: string | null;
-  category: string | null;
-  expiry_date: string | null;
+  invite_code: string;
+  created_by: string;
 };
 
-type ShoppingItem = {
-  id: string;
-  name: string;
-  quantity: number | null;
-  unit: string | null;
-  done: boolean;
+type Member = {
+  user_id: string;
+  role: string;
 };
 
-type Props = {
-  userId: string;
-  email: string;
-  householdId: string | null;
-  role: string | null;
-};
-
-export default function KitchenApp({
-  userId,
-  email,
-  householdId: initialHouseholdId,
-  role,
-}: Props) {
+export default function KitchenApp() {
+  const router = useRouter();
   const supabase = createClient();
 
-  const [householdId, setHouseholdId] = useState(initialHouseholdId);
-  const [householdName, setHouseholdName] = useState("");
-  const [inviteCode, setInviteCode] = useState("");
+  const [userEmail, setUserEmail] = useState("");
+  const [household, setHousehold] = useState<Household | null>(null);
 
-  const [products, setProducts] = useState<Product[]>([]);
-  const [shopping, setShopping] = useState<ShoppingItem[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
 
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  const [newProduct, setNewProduct] = useState("");
-  const [newQuantity, setNewQuantity] = useState("");
-  const [newUnit, setNewUnit] = useState("шт.");
-  const [newExpiry, setNewExpiry] = useState("");
+  const [householdName, setHouseholdName] = useState("Наша кухня");
+  const [inviteCode, setInviteCode] = useState("");
 
-  const [newShopping, setNewShopping] = useState("");
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
-  const [joinCode, setJoinCode] = useState("");
+  async function loadKitchen() {
+    setLoading(true);
+    setError("");
 
-  async function loadHousehold() {
-    if (!householdId) {
-      setLoading(false);
-      return;
-    }
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-    const { data } = await supabase
-      .from("households")
-      .select("name, invite_code")
-      .eq("id", householdId)
-      .single();
-
-    if (data) {
-      setHouseholdName(data.name);
-      setInviteCode(data.invite_code);
-    }
-  }
-
-  async function loadProducts() {
-    if (!householdId) return;
-
-    const { data } = await supabase
-      .from("products")
-      .select("*")
-      .eq("household_id", householdId)
-      .order("expiry_date", { ascending: true });
-
-    setProducts(data ?? []);
-  }
-
-  async function loadShopping() {
-    if (!householdId) return;
-
-    const { data } = await supabase
-      .from("shopping_items")
-      .select("*")
-      .eq("household_id", householdId)
-      .order("created_at", { ascending: false });
-
-    setShopping(data ?? []);
-  }
-
-  async function createHousehold() {
-    const code = Math.random()
-      .toString(36)
-      .substring(2, 8)
-      .toUpperCase();
-
-    const { data, error } = await supabase
-      .from("households")
-      .insert({
-        name: "Наша кухня",
-        invite_code: code,
-        created_by: userId,
-      })
-      .select()
-      .single();
-
-    if (error || !data) {
-      alert(error?.message ?? "Не удалось создать кухню");
-      return;
-    }
-
-    const { error: memberError } = await supabase
-      .from("household_members")
-      .insert({
-        household_id: data.id,
-        user_id: userId,
-        role: "owner",
-      });
-
-    if (memberError) {
-      alert(memberError.message);
-      return;
-    }
-
-    setHouseholdId(data.id);
-    setHouseholdName(data.name);
-    setInviteCode(data.invite_code);
-  }
-
-  async function joinHousehold() {
-    const code = joinCode.trim().toUpperCase();
-
-    if (!code) return;
-
-    const { data: household } = await supabase
-      .from("households")
-      .select("id, name, invite_code")
-      .eq("invite_code", code)
-      .single();
-
-    if (!household) {
-      alert("Кухня с таким кодом не найдена.");
-      return;
-    }
-
-    const { error } = await supabase
-      .from("household_members")
-      .insert({
-        household_id: household.id,
-        user_id: userId,
-        role: "member",
-      });
-
-    if (error) {
-      if (error.code === "23505") {
-        alert("Вы уже подключены к этой кухне.");
-      } else {
-        alert(error.message);
+      if (!user) {
+        router.push("/login");
+        return;
       }
 
-      return;
+      setUserEmail(user.email ?? "");
+
+      const { data: membership, error: membershipError } =
+        await supabase
+          .from("household_members")
+          .select("household_id, user_id, role")
+          .eq("user_id", user.id)
+          .limit(1)
+          .maybeSingle();
+
+      if (membershipError) {
+        throw membershipError;
+      }
+
+      if (!membership) {
+        setHousehold(null);
+        setMembers([]);
+        return;
+      }
+
+      const { data: householdData, error: householdError } =
+        await supabase
+          .from("households")
+          .select("id, name, invite_code, created_by")
+          .eq("id", membership.household_id)
+          .single();
+
+      if (householdError) {
+        throw householdError;
+      }
+
+      const { data: memberData, error: membersError } =
+        await supabase
+          .from("household_members")
+          .select("user_id, role")
+          .eq("household_id", membership.household_id);
+
+      if (membersError) {
+        throw membersError;
+      }
+
+      setHousehold(householdData);
+      setMembers(memberData ?? []);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Не удалось загрузить кухню."
+      );
+    } finally {
+      setLoading(false);
     }
-
-    setHouseholdId(household.id);
-    setHouseholdName(household.name);
-    setInviteCode(household.invite_code);
-    setJoinCode("");
   }
 
-  async function addProduct() {
-    if (!householdId || !newProduct.trim()) return;
+  useEffect(() => {
+    loadKitchen();
+  }, []);
 
-    const quantity = newQuantity
-      ? Number(newQuantity.replace(",", "."))
-      : null;
+  async function createKitchen() {
+    setActionLoading(true);
+    setError("");
+    setMessage("");
 
-    const { error } = await supabase.from("products").insert({
-      household_id: householdId,
-      name: newProduct.trim(),
-      quantity,
-      unit: newUnit,
-      expiry_date: newExpiry || null,
-      created_by: userId,
-    });
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
-    setNewProduct("");
-    setNewQuantity("");
-    setNewExpiry("");
-
-    await loadProducts();
-  }
-
-  async function deleteProduct(id: string) {
-    await supabase
-      .from("products")
-      .delete()
-      .eq("id", id);
-
-    await loadProducts();
-  }
-
-  async function addShoppingItem() {
-    if (!householdId || !newShopping.trim()) return;
-
-    const { error } = await supabase
-      .from("shopping_items")
-      .insert({
-        household_id: householdId,
-        name: newShopping.trim(),
-        created_by: userId,
+    try {
+      const { data, error } = await supabase.rpc("create_household", {
+        household_name: householdName.trim() || "Наша кухня",
       });
 
-    if (error) {
-      alert(error.message);
+      if (error) {
+        throw error;
+      }
+
+      setHousehold(data);
+      setMembers([
+        {
+          user_id: data.created_by,
+          role: "owner",
+        },
+      ]);
+
+      setMessage("Кухня создана!");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Не удалось создать кухню."
+      );
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function joinKitchen() {
+    if (!inviteCode.trim()) {
+      setError("Введите код приглашения.");
       return;
     }
 
-    setNewShopping("");
-    await loadShopping();
-  }
+    setActionLoading(true);
+    setError("");
+    setMessage("");
 
-  async function toggleShopping(id: string, done: boolean) {
-    await supabase
-      .from("shopping_items")
-      .update({ done: !done })
-      .eq("id", id);
+    try {
+      const { data, error } = await supabase.rpc("join_household", {
+        code: inviteCode.trim(),
+      });
 
-    await loadShopping();
-  }
+      if (error) {
+        throw error;
+      }
 
-  async function deleteShopping(id: string) {
-    await supabase
-      .from("shopping_items")
-      .delete()
-      .eq("id", id);
+      setHousehold(data);
+      setMessage("Вы присоединились к кухне!");
 
-    await loadShopping();
+      await loadKitchen();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Не удалось присоединиться к кухне."
+      );
+    } finally {
+      setActionLoading(false);
+    }
   }
 
   async function logout() {
     await supabase.auth.signOut();
-    window.location.href = "/login";
+
+    router.push("/login");
+    router.refresh();
   }
-
-  useEffect(() => {
-    async function start() {
-      await loadHousehold();
-      await loadProducts();
-      await loadShopping();
-      setLoading(false);
-    }
-
-    start();
-  }, [householdId]);
-
-  useEffect(() => {
-    if (!householdId) return;
-
-    const channel = supabase
-      .channel(`household-${householdId}`)
-
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "products",
-          filter: `household_id=eq.${householdId}`,
-        },
-        () => {
-          loadProducts();
-        }
-      )
-
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "shopping_items",
-          filter: `household_id=eq.${householdId}`,
-        },
-        () => {
-          loadShopping();
-        }
-      )
-
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [householdId]);
 
   if (loading) {
     return (
-      <main className="loading-page">
-        <div>Загружаем кухню...</div>
+      <main className="app-page">
+        <div className="loading">Загрузка...</div>
       </main>
     );
   }
 
-  if (!householdId) {
+  if (!household) {
     return (
-      <main className="setup-page">
-        <div className="setup-card">
-          <div className="brand-mark">🍳</div>
+      <main className="app-page">
+        <div className="kitchen-setup">
+          <div className="logo">🍳</div>
 
-          <h1>Ваша кухня</h1>
+          <h1>Добро пожаловать!</h1>
 
           <p>
             Создайте общую кухню или присоединитесь к уже существующей.
           </p>
 
-          <button
-            className="primary-button"
-            onClick={createHousehold}
-          >
-            Создать нашу кухню
-          </button>
+          <section className="setup-section">
+            <h2>Создать кухню</h2>
 
-          <div className="divider">или</div>
+            <input
+              value={householdName}
+              onChange={(event) =>
+                setHouseholdName(event.target.value)
+              }
+              placeholder="Название кухни"
+              disabled={actionLoading}
+            />
 
-          <input
-            value={joinCode}
-            onChange={(e) => setJoinCode(e.target.value)}
-            placeholder="Код приглашения"
-          />
+            <button
+              className="primary-button"
+              onClick={createKitchen}
+              disabled={actionLoading}
+            >
+              {actionLoading ? "Создаём..." : "Создать нашу кухню"}
+            </button>
+          </section>
 
-          <button
-            className="secondary-button"
-            onClick={joinHousehold}
-          >
-            Присоединиться
+          <div className="divider">
+            <span>или</span>
+          </div>
+
+          <section className="setup-section">
+            <h2>Присоединиться</h2>
+
+            <input
+              value={inviteCode}
+              onChange={(event) =>
+                setInviteCode(event.target.value.toUpperCase())
+              }
+              placeholder="Например: A4F91C2B"
+              maxLength={8}
+              disabled={actionLoading}
+            />
+
+            <button
+              className="secondary-button"
+              onClick={joinKitchen}
+              disabled={actionLoading}
+            >
+              {actionLoading
+                ? "Подключаем..."
+                : "Присоединиться"}
+            </button>
+          </section>
+
+          {error && <div className="form-error">{error}</div>}
+          {message && <div className="form-message">{message}</div>}
+
+          <button className="logout-button" onClick={logout}>
+            Выйти
           </button>
         </div>
       </main>
@@ -354,150 +262,71 @@ export default function KitchenApp({
   }
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
+    <main className="app-page">
+      <div className="kitchen-header">
         <div>
-          <div className="eyebrow">НАША КУХНЯ</div>
-
-          <h1>{householdName}</h1>
-
-          <p className="muted">
-            {email}
-          </p>
+          <div className="eyebrow">WHAT TO COOK</div>
+          <h1>{household.name}</h1>
+          <p>{userEmail}</p>
         </div>
 
-        <button
-          className="ghost-button"
-          onClick={logout}
-        >
+        <button className="logout-button" onClick={logout}>
           Выйти
         </button>
-      </header>
+      </div>
 
       <section className="invite-card">
         <div>
-          <strong>Пригласить мужа</strong>
+          <span className="card-label">КОД ПРИГЛАШЕНИЯ</span>
+
+          <div className="invite-code">
+            {household.invite_code}
+          </div>
 
           <p>
-            Передайте ему этот код:
+            Передайте этот код второму человеку, чтобы добавить его
+            в вашу общую кухню.
           </p>
-        </div>
-
-        <div className="invite-code">
-          {inviteCode}
         </div>
       </section>
 
-      <div className="dashboard">
+      <section className="members-card">
+        <h2>Участники</h2>
 
-        <section className="card">
-          <div className="section-header">
-            <div>
-              <h2>🥕 Продукты</h2>
-              <p>Что сейчас есть дома</p>
+        <div className="members-list">
+          {members.map((member) => (
+            <div className="member" key={member.user_id}>
+              <div className="member-avatar">
+                {member.role === "owner" ? "👑" : "👤"}
+              </div>
+
+              <div>
+                <strong>
+                  {member.user_id === household.created_by
+                    ? "Владелец кухни"
+                    : "Участник"}
+                </strong>
+
+                <span>{member.role}</span>
+              </div>
             </div>
-          </div>
+          ))}
+        </div>
+      </section>
 
-          <div className="add-row">
-            <input
-              value={newProduct}
-              onChange={(e) => setNewProduct(e.target.value)}
-              placeholder="Например, курица"
-            />
+      {error && <div className="form-error">{error}</div>}
+      {message && <div className="form-message">{message}</div>}
 
-            <input
-              className="quantity-input"
-              value={newQuantity}
-              onChange={(e) => setNewQuantity(e.target.value)}
-              placeholder="500"
-              inputMode="decimal"
-            />
+      <section className="coming-soon">
+        <span>🍳</span>
 
-            <select
-              value={newUnit}
-              onChange={(e) => setNewUnit(e.target.value)}
-            >
-              <option>г</option>
-              <option>кг</option>
-              <option>мл</option>
-              <option>л</option>
-              <option>шт.</option>
-              <option>уп.</option>
-            </select>
+        <h2>Что приготовить?</h2>
 
-            <input
-              type="date"
-              value={newExpiry}
-              onChange={(e) => setNewExpiry(e.target.value)}
-            />
-
-            <button
-              className="primary-button"
-              onClick={addProduct}
-            >
-              Добавить
-            </button>
-          </div>
-
-          <ProductList
-            products={products}
-            onDelete={deleteProduct}
-          />
-        </section>
-
-        <section className="card">
-          <div className="section-header">
-            <div>
-              <h2>✨ Что приготовить?</h2>
-              <p>
-                Подбор блюд из того, что уже есть дома
-              </p>
-            </div>
-          </div>
-
-          <RecipeSuggestions
-            products={products}
-            householdId={householdId}
-          />
-        </section>
-
-        <section className="card">
-          <div className="section-header">
-            <div>
-              <h2>🛒 Покупки</h2>
-              <p>
-                Общий список
-              </p>
-            </div>
-          </div>
-
-          <div className="add-row">
-            <input
-              value={newShopping}
-              onChange={(e) => setNewShopping(e.target.value)}
-              placeholder="Что нужно купить?"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  addShoppingItem();
-                }
-              }}
-            />
-
-            <button
-              className="primary-button"
-              onClick={addShoppingItem}
-            >
-              Добавить
-            </button>
-          </div>
-
-          <ShoppingList
-            items={shopping}
-            onToggle={toggleShopping}
-            onDelete={deleteShopping}
-          />
-        </section>
-      </div>
+        <p>
+          Здесь скоро появится подбор блюд на основе продуктов,
+          которые есть дома.
+        </p>
+      </section>
     </main>
   );
 }
