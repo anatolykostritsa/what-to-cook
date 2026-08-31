@@ -16,6 +16,11 @@ export default async function MealPlanPage() {
 
   if (!membership) redirect("/kitchen");
 
+  const { data: products } = await supabase
+    .from("products")
+    .select("id,name,quantity,unit")
+    .eq("household_id", membership.household_id);
+
   return (
     <main className="app-page">
       <div className="kitchen-header">
@@ -26,7 +31,7 @@ export default async function MealPlanPage() {
         </div>
         <a className="secondary-button" href="/kitchen">← Вернуться на кухню</a>
       </div>
-      <MealPlanPanel householdId={membership.household_id} userId={user.id} />
+      <MealPlanPanel householdId={membership.household_id} userId={user.id} products={products ?? []} />
     </main>
   );
 }
