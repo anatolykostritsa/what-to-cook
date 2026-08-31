@@ -12,7 +12,7 @@ type Props = { householdId: string; userId: string; products: Product[] };
 type PreviewItem = { ingredient: Ingredient; needed: number | null; canonicalUnit: string | null; available: number; enough: boolean; deductions: { ingredient_id: string; product_id: string; quantity: number }[] };
 
 const MEALS = [{ key: "breakfast", label: "Завтрак", icon: "☀️" }, { key: "lunch", label: "Обед", icon: "🍲" }, { key: "dinner", label: "Ужин", icon: "🌙" }];
-function isoDate(date: Date) { return date.toISOString().slice(0, 10); }
+function isoDate(date: Date) { const year=date.getFullYear(); const month=String(date.getMonth()+1).padStart(2,"0"); const day=String(date.getDate()).padStart(2,"0"); return `${year}-${month}-${day}`; }
 function formatDay(date: Date) { return new Intl.DateTimeFormat("ru-RU", { weekday: "short", day: "numeric", month: "short" }).format(date); }
 
 export default function MealPlanPanel({ householdId, userId, products }: Props) {
