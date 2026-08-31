@@ -4,12 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import ProductList from "./ProductList";
+import RecipesPanel from "./RecipesPanel";
 
 type Household = { id: string; name: string; invite_code: string; created_by: string };
 type Member = { user_id: string; role: string };
 type Product = { id: string; name: string; quantity: number | null; unit: string | null; category: string | null; expiry_date: string | null };
 type ShoppingItem = { id: string; name: string; quantity: number | null; unit: string | null; done: boolean };
-type Tab = "products" | "shopping";
+type Tab = "products" | "shopping" | "recipes";
 
 const UNITS = ["шт.", "г", "кг", "мл", "л", "уп.", "пач."];
 const CATEGORIES = ["Овощи", "Фрукты", "Мясо", "Молочные", "Бакалея", "Напитки", "Другое"];
@@ -97,10 +98,7 @@ export default function KitchenApp() {
     catch (err) { setError(err instanceof Error ? err.message : "Не удалось присоединиться к кухне."); } finally { setActionLoading(false); }
   }
 
-  function readQuantity(value: string) {
-    if (!value.trim()) return null;
-    const quantity = Number(value); return Number.isFinite(quantity) && quantity >= 0 ? quantity : undefined;
-  }
+  function readQuantity(value: string) { if (!value.trim()) return null; const quantity = Number(value); return Number.isFinite(quantity) && quantity >= 0 ? quantity : undefined; }
 
   async function addProduct() {
     const name = productName.trim(); const quantity = readQuantity(productQuantity);
@@ -123,9 +121,7 @@ export default function KitchenApp() {
     catch (err) { setError(err instanceof Error ? err.message : "Не удалось изменить продукт."); } finally { setProductLoading(false); }
   }
 
-  async function deleteProduct(id: string) {
-    const { error } = await supabase.from("products").delete().eq("id", id); if (error) setError(error.message); else setProducts(current => current.filter(p => p.id !== id));
-  }
+  async function deleteProduct(id: string) { const { error } = await supabase.from("products").delete().eq("id", id); if (error) setError(error.message); else setProducts(current => current.filter(p => p.id !== id)); }
 
   async function addShoppingItem() {
     if (!shoppingName.trim() || !household?.id || !userId) return;
@@ -134,15 +130,8 @@ export default function KitchenApp() {
     catch (err) { setError(err instanceof Error ? err.message : "Не удалось добавить покупку."); } finally { setShoppingLoading(false); }
   }
 
-  async function toggleShopping(item: ShoppingItem) {
-    const { error } = await supabase.from("shopping_items").update({ done: !item.done }).eq("id", item.id);
-    if (!error) setShopping(current => current.map(x => x.id === item.id ? { ...x, done: !item.done } : x)); else setError(error.message);
-  }
-
-  async function deleteShopping(id: string) {
-    const { error } = await supabase.from("shopping_items").delete().eq("id", id); if (!error) setShopping(current => current.filter(x => x.id !== id)); else setError(error.message);
-  }
-
+  async function toggleShopping(item: ShoppingItem) { const { error } = await supabase.from("shopping_items").update({ done: !item.done }).eq("id", item.id); if (!error) setShopping(current => current.map(x => x.id === item.id ? { ...x, done: !item.done } : x)); else setError(error.message); }
+  async function deleteShopping(id: string) { const { error } = await supabase.from("shopping_items").delete().eq("id", id); if (!error) setShopping(current => current.filter(x => x.id !== id)); else setError(error.message); }
   async function logout() { await supabase.auth.signOut(); router.push("/login"); router.refresh(); }
 
   const filteredProducts = useMemo(() => products.filter(p => (!search.trim() || p.name.toLowerCase().includes(search.trim().toLowerCase())) && (categoryFilter === "Все" || p.category === categoryFilter)), [products, search, categoryFilter]);
@@ -153,12 +142,13 @@ export default function KitchenApp() {
 
   return <main className="app-page">
     <div className="kitchen-header"><div><div className="eyebrow">WHAT TO COOK</div><h1>{household.name}</h1><p>{userEmail}</p></div><button className="logout-button" onClick={logout}>Выйти</button></div>
-    <nav className="app-tabs"><button className={tab === "products" ? "active" : ""} onClick={() => setTab("products")}>🥫 Продукты <b>{products.length}</b></button><button className={tab === "shopping" ? "active" : ""} onClick={() => setTab("shopping")}>🛒 Покупки <b>{activeShopping}</b></button><button className="disabled-tab" disabled>🍳 Рецепты <span>скоро</span></button><button className="disabled-tab" disabled>📅 План <span>скоро</span></button></nav>
+    <nav className="app-tabs"><button className={tab === "products" ? "active" : ""} onClick={() => setTab("products")}>🥫 Продукты <b>{products.length}</b></button><button className={tab === "shopping" ? "active" : ""} onClick={() => setTab("shopping")}>🛒 Покупки <b>{activeShopping}</b></button><button className={tab === "recipes" ? "active" : ""} onClick={() => setTab("recipes")}>🍳 Рецепты <b>›</b></button><button className="disabled-tab" disabled>📅 План <span>скоро</span></button></nav>
 
     {tab === "products" && <section className="dashboard-grid"><section className="dashboard-card products-card"><div className="card-heading"><div><span className="card-label">МОЯ КУХНЯ</span><h2>Продукты</h2></div><span className="count-badge">{products.length}</span></div><div className="product-form"><input value={productName} onChange={e => setProductName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addProduct(); }} placeholder="Например, молоко" disabled={productLoading}/><div className="product-form-row"><input type="number" min="0" step="any" value={productQuantity} onChange={e => setProductQuantity(e.target.value)} placeholder="Количество" disabled={productLoading}/><select value={productUnit} onChange={e => setProductUnit(e.target.value)} disabled={productLoading}>{UNITS.map(unit => <option key={unit}>{unit}</option>)}</select></div><div className="product-form-row"><select value={productCategory} onChange={e => setProductCategory(e.target.value)} disabled={productLoading}>{CATEGORIES.map(category => <option key={category}>{category}</option>)}</select><input type="date" value={productExpiry} onChange={e => setProductExpiry(e.target.value)} disabled={productLoading}/></div><button className="primary-button" onClick={addProduct} disabled={productLoading}>{productLoading ? "Добавляем..." : "+ Добавить продукт"}</button></div><div className="list-toolbar"><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск продуктов..."/><select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}><option>Все</option>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></div><ProductList products={filteredProducts} onDelete={deleteProduct} onEdit={startEdit}/>{filteredProducts.length !== products.length && <div className="filter-note">Показано {filteredProducts.length} из {products.length}</div>}</section><div className="dashboard-side"><section className="invite-card"><span className="card-label">КОД ПРИГЛАШЕНИЯ</span><div className="invite-code">{household.invite_code}</div><p>Передайте код второму человеку, чтобы добавить его в общую кухню.</p></section><section className="members-card"><h2>Участники</h2><div className="members-list">{members.map(member => <div className="member" key={member.user_id}><div className="member-avatar">{member.role === "owner" ? "👑" : "👤"}</div><div><strong>{member.user_id === household.created_by ? "Владелец кухни" : "Участник"}</strong><span>{member.role}</span></div></div>)}</div></section></div></section>}
 
     {tab === "shopping" && <section className="dashboard-card shopping-card"><div className="card-heading"><div><span className="card-label">ОБЩИЙ СПИСОК</span><h2>Покупки</h2></div><span className="count-badge">{activeShopping}</span></div><div className="shopping-add"><input value={shoppingName} onChange={e => setShoppingName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addShoppingItem(); }} placeholder="Что нужно купить?" disabled={shoppingLoading}/><button className="primary-button" onClick={addShoppingItem} disabled={shoppingLoading}>{shoppingLoading ? "Добавляем..." : "+ Добавить"}</button></div><div className="shopping-list">{shopping.length === 0 ? <div className="empty-state">Список покупок пуст.</div> : <>{shopping.filter(x => !x.done).map(item => <ShoppingRow key={item.id} item={item} onToggle={toggleShopping} onDelete={deleteShopping}/>) }{shopping.some(x => x.done) && <><div className="completed-label">Куплено</div>{shopping.filter(x => x.done).map(item => <ShoppingRow key={item.id} item={item} onToggle={toggleShopping} onDelete={deleteShopping}/>)}</>}</>}</div></section>}
 
+    {tab === "recipes" && <RecipesPanel householdId={household.id} userId={userId} products={products} />}
     {error && <div className="form-error">{error}</div>}{message && <div className="form-message">{message}</div>}
     {editing && <div className="modal-backdrop" onMouseDown={() => setEditing(null)}><div className="edit-modal" onMouseDown={e => e.stopPropagation()}><div className="modal-header"><div><span className="card-label">ПРОДУКТ</span><h2>Редактировать</h2></div><button className="modal-close" onClick={() => setEditing(null)}>×</button></div><input value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })} placeholder="Название"/><div className="product-form-row"><input type="number" min="0" step="any" value={editing.quantity ?? ""} onChange={e => setEditing({ ...editing, quantity: e.target.value === "" ? null : Number(e.target.value) })} placeholder="Количество"/><select value={editing.unit ?? "шт."} onChange={e => setEditing({ ...editing, unit: e.target.value })}>{UNITS.map(unit => <option key={unit}>{unit}</option>)}</select></div><div className="product-form-row"><select value={editing.category ?? "Другое"} onChange={e => setEditing({ ...editing, category: e.target.value })}>{CATEGORIES.map(category => <option key={category}>{category}</option>)}</select><input type="date" value={editing.expiry_date ?? ""} onChange={e => setEditing({ ...editing, expiry_date: e.target.value || null })}/></div><div className="modal-actions"><button className="secondary-button" onClick={() => setEditing(null)}>Отмена</button><button className="primary-button" onClick={saveEdit} disabled={productLoading}>{productLoading ? "Сохраняем..." : "Сохранить"}</button></div></div></div>}
   </main>;
