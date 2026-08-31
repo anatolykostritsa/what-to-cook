@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { assessIngredient, formatQuantity, namesMatch, normalizeName, normalizeUnit, toCanonical } from "@/lib/domain/inventory";
 
-type Product = { id: string; name: string; quantity: number | null; unit: string | null };
+type Product = { id: string; name: string; quantity: number | null; unit: string | null; expiry_date?: string | null };
 type Recipe = { id: string; name: string; description: string | null; instructions: string | null; servings: number | null };
 type Ingredient = { id: string; recipe_id: string; name: string; quantity: number | null; unit: string | null; optional: boolean | null };
 type PlanItem = { id: string; recipe_id: string; planned_date: string; meal_type: string; servings: number | null; notes: string | null; cooked_at: string | null };

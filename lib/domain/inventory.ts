@@ -1,4 +1,4 @@
-export type InventoryProduct = { id: string; name: string; quantity: number | null; unit: string | null };
+export type InventoryProduct = { id: string; name: string; quantity: number | null; unit: string | null; expiry_date?: string | null };
 export type InventoryIngredient = { id: string; name: string; quantity: number | null; unit: string | null; optional?: boolean | null };
 export type CanonicalUnit = "г" | "мл" | "шт" | string;
 
@@ -39,7 +39,7 @@ export function fromCanonical(quantity: number, originalUnit: string | null | un
 }
 
 export function assessIngredient(ingredient: InventoryIngredient, products: InventoryProduct[], factor = 1) {
-  const matchingByName = products.filter((product) => namesMatch(product.name, ingredient.name));
+  const matchingByName = products.filter((product) => namesMatch(product.name, ingredient.name) && (!product.expiry_date || daysUntilExpiry(product.expiry_date) >= 0));
   if (ingredient.quantity === null) {
     return { enough: matchingByName.length > 0, needed: null, available: null, unit: normalizeUnit(ingredient.unit), deficit: null, deductions: [] as { ingredient_id: string; product_id: string; quantity: number }[] };
   }
@@ -58,4 +58,9 @@ export function assessIngredient(ingredient: InventoryIngredient, products: Inve
 
 export function formatQuantity(quantity: number | null, unit: string | null) {
   return quantity === null ? "количество не указано" : `${Number(quantity.toFixed(2))} ${unit ?? ""}`.trim();
+}
+
+export function daysUntilExpiry(date: string) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return Math.ceil((new Date(`${date}T00:00:00`).getTime() - today.getTime()) / 86400000);
 }

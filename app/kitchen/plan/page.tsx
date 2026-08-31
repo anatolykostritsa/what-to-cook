@@ -18,7 +18,7 @@ export default async function MealPlanPage() {
 
   const { data: products } = await supabase
     .from("products")
-    .select("id,name,quantity,unit")
+    .select("id,name,quantity,unit,expiry_date")
     .eq("household_id", membership.household_id);
 
   return (
