@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { assessIngredient, formatQuantity } from "@/lib/domain/inventory";
 
 type Product = { id: string; name: string; quantity: number | null; unit: string | null };
 type Recipe = { id: string; name: string; description: string | null; instructions: string | null; servings: number | null };
@@ -13,14 +14,6 @@ type PreviewItem = { ingredient: Ingredient; needed: number | null; canonicalUni
 const MEALS = [{ key: "breakfast", label: "Завтрак", icon: "☀️" }, { key: "lunch", label: "Обед", icon: "🍲" }, { key: "dinner", label: "Ужин", icon: "🌙" }];
 function isoDate(date: Date) { return date.toISOString().slice(0, 10); }
 function formatDay(date: Date) { return new Intl.DateTimeFormat("ru-RU", { weekday: "short", day: "numeric", month: "short" }).format(date); }
-function normalize(value: string) { return value.toLowerCase().replaceAll("ё", "е").trim(); }
-function namesMatch(product: string, ingredient: string) { const p = normalize(product); const i = normalize(ingredient); return p === i || p.includes(i) || i.includes(p); }
-function canonical(quantity: number, unit: string | null) {
-  if (unit === "кг") return { quantity: quantity * 1000, unit: "г" };
-  if (unit === "л") return { quantity: quantity * 1000, unit: "мл" };
-  return { quantity, unit: unit || null };
-}
-function formatQuantity(quantity: number | null, unit: string | null) { return quantity === null ? "количество не указано" : `${Number(quantity.toFixed(2))} ${unit ?? ""}`.trim(); }
 
 export default function MealPlanPanel({ householdId, userId, products }: Props) {
   const supabase = useMemo(() => createClient(), []);
@@ -50,11 +43,8 @@ export default function MealPlanPanel({ householdId, userId, products }: Props) 
     if (!selected || !selectedRecipe) return [];
     const factor = (selected.servings ?? selectedRecipe.servings ?? 1) / (selectedRecipe.servings || 1);
     return selectedIngredients.map((ingredient) => {
-      if (ingredient.quantity === null) return { ingredient, needed: null, canonicalUnit: ingredient.unit, available: 0, enough: false, deductions: [] };
-      const need = canonical(ingredient.quantity * factor, ingredient.unit); const matches = products.filter((product) => namesMatch(product.name, ingredient.name) && product.quantity !== null).map((product) => ({ product, amount: canonical(product.quantity!, product.unit) })).filter(({ amount }) => amount.unit === need.unit);
-      let remaining = need.quantity; const deductions: { ingredient_id: string; product_id: string; quantity: number }[] = [];
-      for (const match of matches) { if (remaining <= 0) break; const canonicalTake = Math.min(remaining, match.amount.quantity); const originalTake = canonicalTake / (match.product.unit === "кг" || match.product.unit === "л" ? 1000 : 1); deductions.push({ ingredient_id: ingredient.id, product_id: match.product.id, quantity: originalTake }); remaining -= canonicalTake; }
-      return { ingredient, needed: need.quantity, canonicalUnit: need.unit, available: matches.reduce((sum, match) => sum + match.amount.quantity, 0), enough: remaining <= 0, deductions };
+      const assessment = assessIngredient(ingredient, products, factor);
+      return { ingredient, needed: assessment.needed, canonicalUnit: assessment.unit, available: assessment.available ?? 0, enough: assessment.enough, deductions: assessment.deductions };
     });
   }, [products, selected, selectedIngredients, selectedRecipe]);
   const missing = preview.filter((entry) => !entry.ingredient.optional && !entry.enough);
