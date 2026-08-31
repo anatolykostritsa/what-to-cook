@@ -2,15 +2,9 @@ export type InventoryProduct = { id: string; name: string; quantity: number | nu
 export type InventoryIngredient = { id: string; name: string; quantity: number | null; unit: string | null; optional?: boolean | null };
 export type CanonicalUnit = "г" | "мл" | "шт" | string;
 
-const NAME_ALIASES: Record<string, string> = {
-  яйцо: "яйца", яйца: "яйца", паста: "макароны", спагетти: "макароны", лапша: "макароны",
-  помидор: "помидоры", томат: "помидоры", томаты: "помидоры", "куриное филе": "курица",
-  "куриная грудка": "курица", "репчатый лук": "лук",
-};
-
 export function normalizeName(value: string) {
   const normalized = value.toLowerCase().replaceAll("ё", "е").replace(/\s+/g, " ").trim();
-  return NAME_ALIASES[normalized] ?? normalized;
+  return normalized;
 }
 
 export function namesMatch(left: string, right: string) {
