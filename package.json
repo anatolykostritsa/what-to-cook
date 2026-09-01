@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "recipes:import": "node scripts/import-themealdb.mjs",
+    "recipes:seed": "node scripts/import-themealdb.mjs --sample"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",

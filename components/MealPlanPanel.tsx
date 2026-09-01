@@ -25,7 +25,7 @@ export default function MealPlanPanel({ householdId, userId, products }: Props) 
   const load = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true); setError(""); const end = days[6].date;
     const [recipeResult, ingredientResult, planResult] = await Promise.all([
-      supabase.from("recipes").select("id,name,description,instructions,servings").eq("household_id", householdId).order("name"),
+      supabase.from("recipes").select("id,name,description,instructions,servings").or(`recipe_type.eq.system,household_id.eq.${householdId}`).eq("is_primary_variant",true).order("name").limit(200),
       supabase.from("recipe_ingredients").select("id,recipe_id,name,quantity,unit,optional").order("created_at"),
       supabase.from("meal_plan").select("id,recipe_id,planned_date,meal_type,servings,notes,cooked_at").eq("household_id", householdId).gte("planned_date", weekStart).lte("planned_date", end).order("planned_date"),
     ]);
