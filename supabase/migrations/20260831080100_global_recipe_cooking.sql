@@ -1,4 +1,22 @@
 -- Allow the same atomic, server-validated cooking flow for catalog recipes.
+-- Canonical IDs are authoritative when both sides have one. Legacy/custom rows
+-- fall back to the existing normalized-name compatibility rule.
+create or replace function public.recipe_product_matches(p_ingredient_id uuid, p_product_id uuid)
+returns boolean language sql stable set search_path=public as $$
+  select case
+    when ingredient.ingredient_id is not null and product.ingredient_id is not null
+      then ingredient.ingredient_id = product.ingredient_id
+    else
+      replace(lower(trim(product.name)), 'ё', 'е') like '%' || replace(lower(trim(ingredient.name)), 'ё', 'е') || '%'
+      or replace(lower(trim(ingredient.name)), 'ё', 'е') like '%' || replace(lower(trim(product.name)), 'ё', 'е') || '%'
+  end
+  from public.recipe_ingredients ingredient
+  join public.products product on product.id = p_product_id
+  where ingredient.id = p_ingredient_id
+$$;
+revoke all on function public.recipe_product_matches(uuid,uuid) from public;
+grant execute on function public.recipe_product_matches(uuid,uuid) to authenticated;
+
 create or replace function public.cook_recipe(p_recipe_id uuid, p_household_id uuid, p_servings numeric, p_deductions jsonb)
 returns void language plpgsql security definer set search_path=public as $$
 declare
@@ -37,8 +55,8 @@ begin
     if not found then raise exception 'Ingredient does not belong to recipe'; end if;
     select * into v_product from public.products where id=(v_entry->>'product_id')::uuid and household_id=p_household_id for update;
     if not found or v_product.quantity is null or v_product.quantity<v_amount then raise exception 'Not enough product: %',coalesce(v_product.name,v_ingredient.name); end if;
-    if not (replace(lower(trim(v_product.name)),'ё','е') like '%'||replace(lower(trim(v_ingredient.name)),'ё','е')||'%'
-      or replace(lower(trim(v_ingredient.name)),'ё','е') like '%'||replace(lower(trim(v_product.name)),'ё','е')||'%') then raise exception 'Product does not match ingredient: %',v_ingredient.name; end if;
+    if not coalesce(public.recipe_product_matches(v_ingredient.id,v_product.id),false)
+      then raise exception 'Product does not match ingredient: %',v_ingredient.name; end if;
     if (case when v_product.unit='кг' then 'г' when v_product.unit='л' then 'мл' when v_product.unit='шт.' then 'шт' else coalesce(v_product.unit,'') end)
       <>(case when v_ingredient.unit='кг' then 'г' when v_ingredient.unit='л' then 'мл' when v_ingredient.unit='шт.' then 'шт' else coalesce(v_ingredient.unit,'') end)
       then raise exception 'Unit mismatch: %',v_ingredient.name; end if;
@@ -47,6 +65,8 @@ begin
 end; $$;
 revoke all on function public.cook_recipe(uuid,uuid,numeric,jsonb) from public;
 grant execute on function public.cook_recipe(uuid,uuid,numeric,jsonb) to authenticated;
+revoke all on function public.cook_recipe(uuid,numeric,jsonb) from public;
+drop function if exists public.cook_recipe(uuid,numeric,jsonb);
 
 create or replace function public.cook_meal_plan(
   p_meal_plan_id uuid,
@@ -80,7 +100,8 @@ begin
   if jsonb_typeof(coalesce(p_deductions, '[]'::jsonb)) <> 'array' then raise exception 'Invalid deductions'; end if;
 
   select greatest(coalesce(servings, 1), 1) into v_recipe_servings
-  from public.recipes where id = v_plan.recipe_id and (recipe_type='system' or household_id = v_plan.household_id);
+  from public.recipes where id = v_plan.recipe_id
+    and (recipe_type='system' or (recipe_type='user' and household_id = v_plan.household_id));
   if not found then raise exception 'Recipe not found'; end if;
 
   -- Required ingredients must have a known quantity and exactly enough matching,
@@ -129,12 +150,10 @@ begin
     where id = (v_deduction->>'product_id')::uuid and household_id = v_plan.household_id
     for update;
     if not found then raise exception 'Product not found'; end if;
-    if not (
-      replace(lower(trim(v_product.name)), 'ё', 'е') like '%' || replace(lower(trim(v_ingredient.name)), 'ё', 'е') || '%'
-      or replace(lower(trim(v_ingredient.name)), 'ё', 'е') like '%' || replace(lower(trim(v_product.name)), 'ё', 'е') || '%'
-    ) then raise exception 'Product does not match ingredient: %', v_ingredient.name; end if;
-    if (case when v_product.unit = 'кг' then 'г' when v_product.unit = 'л' then 'мл' else coalesce(v_product.unit, '') end)
-      <> (case when v_ingredient.unit = 'кг' then 'г' when v_ingredient.unit = 'л' then 'мл' else coalesce(v_ingredient.unit, '') end)
+    if not coalesce(public.recipe_product_matches(v_ingredient.id,v_product.id),false)
+      then raise exception 'Product does not match ingredient: %', v_ingredient.name; end if;
+    if (case when v_product.unit = 'кг' then 'г' when v_product.unit = 'л' then 'мл' when v_product.unit = 'шт.' then 'шт' else coalesce(v_product.unit, '') end)
+      <> (case when v_ingredient.unit = 'кг' then 'г' when v_ingredient.unit = 'л' then 'мл' when v_ingredient.unit = 'шт.' then 'шт' else coalesce(v_ingredient.unit, '') end)
     then raise exception 'Product unit does not match ingredient: %', v_ingredient.name; end if;
     if v_product.quantity is null then raise exception 'Product quantity is unknown: %', v_product.name; end if;
     if v_product.quantity < v_amount then raise exception 'Not enough product: %', v_product.name; end if;

@@ -59,6 +59,7 @@ create table if not exists public.recipe_favorites (
   created_at timestamptz not null default now(), primary key(user_id,recipe_id)
 );
 alter table public.recipe_favorites enable row level security;
+drop policy if exists "favorites are private" on public.recipe_favorites;
 create policy "favorites are private" on public.recipe_favorites for all to authenticated
   using (user_id=auth.uid()) with check (user_id=auth.uid());
 
@@ -99,14 +100,18 @@ returns table(id uuid,canonical_name text,default_unit text,category text) langu
  order by case when c.normalized_name=replace(lower(trim(p_query)),'ё','е') then 0 when c.normalized_name like replace(lower(trim(p_query)),'ё','е')||'%' then 1 else 2 end,
  exists(select 1 from products p where p.household_id=p_household_id and (p.ingredient_id=c.id or replace(lower(trim(p.name)),'ё','е')=c.normalized_name)) desc,c.popularity desc,c.canonical_name limit least(greatest(p_limit,1),20)
 $$;
+revoke all on function public.suggest_ingredients(uuid,text,integer) from public;
 grant execute on function public.suggest_ingredients(uuid,text,integer) to authenticated;
 
 alter table public.ingredients_catalog enable row level security;
+drop policy if exists "authenticated read ingredient catalog" on public.ingredients_catalog;
 create policy "authenticated read ingredient catalog" on public.ingredients_catalog for select to authenticated using (true);
 
 -- System rows are visible, household rows retain membership isolation. These
 -- policies are intentionally command-specific; service_role bypasses RLS for import.
+drop policy if exists "read system recipes" on public.recipes;
 create policy "read system recipes" on public.recipes for select to authenticated using (recipe_type='system');
+drop policy if exists "read system recipe ingredients" on public.recipe_ingredients;
 create policy "read system recipe ingredients" on public.recipe_ingredients for select to authenticated using (exists(select 1 from recipes r where r.id=recipe_id and r.recipe_type='system'));
 
 -- Per-user favorites replace the legacy shared flag.
