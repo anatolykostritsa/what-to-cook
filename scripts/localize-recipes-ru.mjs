@@ -20,6 +20,7 @@ function createArgosClient() {
   const child = spawn(python, [helper], {
     stdio: ["pipe", "pipe", "inherit"],
     windowsHide: true,
+    env: { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
   });
 
   const lines = createInterface({ input: child.stdout });
@@ -149,14 +150,14 @@ try {
   const ingredientBatches = makeBatches(ingredientEntries);
   for (let i = 0; i < ingredientBatches.length; i++) {
     const batch = ingredientBatches[i];
+    let translated;
     try {
-      const translated = await argos.translateMany(batch.map((x) => x.text));
-      if (translated.length !== batch.length) throw new Error(`Argos вернул ${translated.length} переводов вместо ${batch.length}`);
-      batch.forEach((entry, index) => ingredientTranslations.set(entry.id, translated[index].trim()));
+      translated = await argos.translateMany(batch.map((x) => x.text));
     } catch (error) {
-      failed += batch.length;
-      console.error(`Пакет ингредиентов ${i + 1}/${ingredientBatches.length}:`, error instanceof Error ? error.message : error);
+      throw new Error(`Argos остановился на пакете ингредиентов ${i + 1}/${ingredientBatches.length}: ${error instanceof Error ? error.message : error}`);
     }
+    if (translated.length !== batch.length) throw new Error(`Argos вернул ${translated.length} переводов вместо ${batch.length}`);
+    batch.forEach((entry, index) => ingredientTranslations.set(entry.id, translated[index].trim()));
     console.log(`Перевод ингредиентов: пакет ${i + 1}/${ingredientBatches.length}`);
   }
 
@@ -194,18 +195,18 @@ try {
   const recipeBatches = makeBatches(recipeEntries);
   for (let i = 0; i < recipeBatches.length; i++) {
     const batch = recipeBatches[i];
+    let translated;
     try {
-      const translated = await argos.translateMany(batch.map((x) => x.text));
-      if (translated.length !== batch.length) throw new Error(`Argos вернул ${translated.length} переводов вместо ${batch.length}`);
-      batch.forEach((entry, index) => {
-        const patch = recipePatches.get(entry.recipeId) ?? {};
-        patch[entry.field] = translated[index].trim();
-        recipePatches.set(entry.recipeId, patch);
-      });
+      translated = await argos.translateMany(batch.map((x) => x.text));
     } catch (error) {
-      failed += batch.length;
-      console.error(`Пакет рецептов ${i + 1}/${recipeBatches.length}:`, error instanceof Error ? error.message : error);
+      throw new Error(`Argos остановился на пакете рецептов ${i + 1}/${recipeBatches.length}: ${error instanceof Error ? error.message : error}`);
     }
+    if (translated.length !== batch.length) throw new Error(`Argos вернул ${translated.length} переводов вместо ${batch.length}`);
+    batch.forEach((entry, index) => {
+      const patch = recipePatches.get(entry.recipeId) ?? {};
+      patch[entry.field] = translated[index].trim();
+      recipePatches.set(entry.recipeId, patch);
+    });
     if ((i + 1) % 5 === 0 || i + 1 === recipeBatches.length) {
       console.log(`Перевод рецептов: пакет ${i + 1}/${recipeBatches.length}`);
     }
