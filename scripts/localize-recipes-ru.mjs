@@ -1,27 +1,36 @@
 import { createClient } from "@supabase/supabase-js";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!url || !key) throw new Error("Нужны NEXT_PUBLIC_SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY");
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const translatorKey = process.env.AZURE_TRANSLATOR_KEY;
+const translatorRegion = process.env.AZURE_TRANSLATOR_REGION;
+const translatorEndpoint = (process.env.AZURE_TRANSLATOR_ENDPOINT || "https://api.cognitive.microsofttranslator.com").replace(/\/$/, "");
 
-const db = createClient(url, key, { auth: { persistSession: false } });
-const TRANSLATE_URL = "https://translate.googleapis.com/translate_a/single";
-const REQUEST_DELAY_MS = 1400;
-const RATE_LIMIT_DELAYS_MS = [60_000, 120_000, 240_000, 360_000, 600_000];
-const TRANSIENT_DELAYS_MS = [5_000, 15_000, 30_000, 60_000, 120_000];
-const INGREDIENT_BATCH_SIZE = 12;
+if (!url || !serviceRoleKey) {
+  throw new Error("Нужны NEXT_PUBLIC_SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY");
+}
+if (!translatorKey || !translatorRegion) {
+  throw new Error("Нужны AZURE_TRANSLATOR_KEY и AZURE_TRANSLATOR_REGION. Для массовой локализации используем официальный Azure Translator, а не rate-limited Google endpoint.");
+}
+
+const db = createClient(url, serviceRoleKey, { auth: { persistSession: false } });
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const cache = new Map();
+const MAX_BATCH_ITEMS = 40;
+const MAX_BATCH_CHARS = 35_000;
+const UPDATE_CONCURRENCY = 8;
 
-class TranslateHttpError extends Error {
-  constructor(status, retryAfterMs = null) {
-    super(`Translate HTTP ${status}`);
+class TranslatorHttpError extends Error {
+  constructor(status, retryAfterMs = null, body = "") {
+    super(`Azure Translator HTTP ${status}${body ? `: ${body.slice(0, 240)}` : ""}`);
     this.status = status;
     this.retryAfterMs = retryAfterMs;
   }
 }
 
-function retryAfterMs(response) {
+function getRetryAfterMs(response) {
+  const msHeader = Number(response.headers.get("x-ratelimit-reset"));
+  if (Number.isFinite(msHeader) && msHeader > 0) return msHeader * 1000;
+
   const raw = response.headers.get("retry-after");
   if (!raw) return null;
   const seconds = Number(raw);
@@ -30,52 +39,87 @@ function retryAfterMs(response) {
   return Number.isFinite(date) ? Math.max(0, date - Date.now()) : null;
 }
 
-async function translate(text) {
-  const value = (text ?? "").trim();
-  if (!value) return null;
-  if (cache.has(value)) return cache.get(value);
+async function translateMany(texts) {
+  if (!texts.length) return [];
 
   let lastError;
   for (let attempt = 0; attempt < 6; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60_000);
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 45_000);
-      let response;
-      try {
-        response = await fetch(TRANSLATE_URL, {
-          method: "POST",
-          headers: { "content-type": "application/x-www-form-urlencoded;charset=UTF-8" },
-          body: new URLSearchParams({ client: "gtx", sl: "en", tl: "ru", dt: "t", q: value }),
-          signal: controller.signal,
-        });
-      } finally {
-        clearTimeout(timeout);
+      const response = await fetch(`${translatorEndpoint}/translate?api-version=3.0&from=en&to=ru`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "Ocp-Apim-Subscription-Key": translatorKey,
+          "Ocp-Apim-Subscription-Region": translatorRegion,
+        },
+        body: JSON.stringify(texts.map((Text) => ({ Text }))),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        throw new TranslatorHttpError(response.status, getRetryAfterMs(response), body);
       }
 
-      if (!response.ok) throw new TranslateHttpError(response.status, retryAfterMs(response));
       const data = await response.json();
-      const translated = Array.isArray(data?.[0]) ? data[0].map((part) => part?.[0] ?? "").join("").trim() : "";
-      if (!translated) throw new Error("Пустой перевод");
+      if (!Array.isArray(data) || data.length !== texts.length) {
+        throw new Error(`Azure Translator вернул ${Array.isArray(data) ? data.length : "не массив"} результатов вместо ${texts.length}`);
+      }
 
-      cache.set(value, translated);
-      await delay(REQUEST_DELAY_MS);
-      return translated;
+      return data.map((row, index) => {
+        const translated = row?.translations?.[0]?.text?.trim();
+        if (!translated) throw new Error(`Пустой перевод элемента ${index + 1}`);
+        return translated;
+      });
     } catch (error) {
       lastError = error;
-      if (attempt >= 5) break;
+      const status = error instanceof TranslatorHttpError ? error.status : null;
+      const transient = status === 429 || status === 408 || status === 425 || status === 500 || status === 502 || status === 503 || status === 504 || error?.name === "AbortError";
+      if (!transient || attempt === 5) break;
 
-      const status = error instanceof TranslateHttpError ? error.status : null;
-      const isRateLimit = status === 429 || status === 403;
-      const isTransient = isRateLimit || status === 408 || status === 425 || status === 500 || status === 502 || status === 503 || status === 504 || error?.name === "AbortError";
-      if (!isTransient) break;
-
-      const schedule = isRateLimit ? RATE_LIMIT_DELAYS_MS : TRANSIENT_DELAYS_MS;
-      const waitMs = Math.max(error instanceof TranslateHttpError && error.retryAfterMs ? error.retryAfterMs : 0, schedule[Math.min(attempt, schedule.length - 1)]);
-      console.warn(`Перевод временно ограничен${status ? ` (HTTP ${status})` : ""}. Ждём ${Math.ceil(waitMs / 1000)} сек. и продолжаем...`);
+      const fallback = [5_000, 15_000, 30_000, 60_000, 120_000][Math.min(attempt, 4)];
+      const waitMs = Math.max(error instanceof TranslatorHttpError && error.retryAfterMs ? error.retryAfterMs : 0, fallback);
+      console.warn(`Azure Translator временно недоступен${status ? ` (HTTP ${status})` : ""}. Ждём ${Math.ceil(waitMs / 1000)} сек...`);
       await delay(waitMs);
+    } finally {
+      clearTimeout(timeout);
     }
   }
+
   throw lastError;
+}
+
+function makeBatches(entries) {
+  const batches = [];
+  let current = [];
+  let chars = 0;
+
+  for (const entry of entries) {
+    const size = entry.text.length;
+    if (current.length && (current.length >= MAX_BATCH_ITEMS || chars + size > MAX_BATCH_CHARS)) {
+      batches.push(current);
+      current = [];
+      chars = 0;
+    }
+    current.push(entry);
+    chars += size;
+  }
+  if (current.length) batches.push(current);
+  return batches;
+}
+
+async function mapLimit(items, limit, worker) {
+  let cursor = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      await worker(items[index], index);
+    }
+  });
+  await Promise.all(runners);
 }
 
 async function fetchAll(table, columns, filters = (query) => query) {
@@ -102,99 +146,93 @@ const catalog = await fetchAll(
   (query) => query.order("id"),
 );
 
-let recipeUpdated = 0;
-let ingredientUpdated = 0;
-let failed = 0;
-
 console.log(`Локализация: ${recipes.length} рецептов, ${catalog.length} ингредиентов`);
 console.log(`Уже переведено: рецептов ${recipes.filter((x) => x.name_ru).length}/${recipes.length}, ингредиентов ${catalog.filter((x) => x.display_name_ru).length}/${catalog.length}`);
 
-// First sync already translated catalog rows to recipe_ingredients without calling translator.
-for (const item of catalog.filter((x) => x.display_name_ru)) {
+let ingredientUpdated = 0;
+let recipeUpdated = 0;
+let failed = 0;
+
+// 1) Translate only missing canonical ingredient display names.
+const ingredientEntries = catalog
+  .filter((item) => !item.display_name_ru)
+  .map((item) => ({ kind: "ingredient", id: item.id, text: item.canonical_name }));
+
+const ingredientTranslations = new Map();
+const ingredientBatches = makeBatches(ingredientEntries);
+for (let i = 0; i < ingredientBatches.length; i++) {
+  const batch = ingredientBatches[i];
+  try {
+    const translated = await translateMany(batch.map((x) => x.text));
+    batch.forEach((entry, index) => ingredientTranslations.set(entry.id, translated[index]));
+  } catch (error) {
+    failed += batch.length;
+    console.error(`Пакет ингредиентов ${i + 1}/${ingredientBatches.length}:`, error instanceof Error ? error.message : error);
+  }
+  console.log(`Перевод ингредиентов: пакет ${i + 1}/${ingredientBatches.length}`);
+}
+
+await mapLimit([...ingredientTranslations.entries()], UPDATE_CONCURRENCY, async ([id, displayName]) => {
+  const { error } = await db.from("ingredients_catalog").update({ display_name_ru: displayName }).eq("id", id);
+  if (error) {
+    failed++;
+    console.error(`Не удалось сохранить ингредиент ${id}: ${error.message}`);
+    return;
+  }
+  ingredientUpdated++;
+});
+
+// Sync all available Russian catalog names to recipe ingredient rows.
+const refreshedCatalog = await fetchAll(
+  "ingredients_catalog",
+  "id,canonical_name,display_name_ru",
+  (query) => query.not("display_name_ru", "is", null).order("id"),
+);
+await mapLimit(refreshedCatalog, UPDATE_CONCURRENCY, async (item) => {
   const { error } = await db.from("recipe_ingredients").update({ name_ru: item.display_name_ru }).eq("ingredient_id", item.id);
   if (error) {
     failed++;
-    console.error(`Синхронизация ${item.canonical_name}:`, error.message);
+    console.error(`Не удалось синхронизировать ${item.canonical_name}: ${error.message}`);
   }
+});
+
+// 2) Translate all missing recipe fields in efficient Azure batches.
+const recipeEntries = [];
+for (const recipe of recipes) {
+  if (!recipe.name_ru) recipeEntries.push({ kind: "recipe", recipeId: recipe.id, recipeName: recipe.name, field: "name_ru", text: recipe.name });
+  if (recipe.description && !recipe.description_ru) recipeEntries.push({ kind: "recipe", recipeId: recipe.id, recipeName: recipe.name, field: "description_ru", text: recipe.description });
+  if (recipe.instructions && !recipe.instructions_ru) recipeEntries.push({ kind: "recipe", recipeId: recipe.id, recipeName: recipe.name, field: "instructions_ru", text: recipe.instructions });
 }
 
-// Translate missing ingredient display names in batches to dramatically reduce external requests.
-const missingCatalog = catalog.filter((x) => !x.display_name_ru);
-for (let start = 0; start < missingCatalog.length; start += INGREDIENT_BATCH_SIZE) {
-  const batch = missingCatalog.slice(start, start + INGREDIENT_BATCH_SIZE);
-  const token = `<<<WTC_SPLIT_${Date.now()}_${start}>>>`;
-  const source = batch.map((item) => item.canonical_name).join(`\n${token}\n`);
+const recipePatches = new Map();
+const recipeBatches = makeBatches(recipeEntries);
+for (let i = 0; i < recipeBatches.length; i++) {
+  const batch = recipeBatches[i];
   try {
-    const translated = await translate(source);
-    const parts = translated.split(token).map((x) => x.trim());
-    if (parts.length !== batch.length || parts.some((x) => !x)) {
-      // Fallback to individual translation only for this batch if the separator was altered.
-      for (const item of batch) {
-        try {
-          const displayName = await translate(item.canonical_name);
-          const { error: catalogError } = await db.from("ingredients_catalog").update({ display_name_ru: displayName }).eq("id", item.id);
-          if (catalogError) throw catalogError;
-          const { error: rowsError } = await db.from("recipe_ingredients").update({ name_ru: displayName }).eq("ingredient_id", item.id);
-          if (rowsError) throw rowsError;
-          ingredientUpdated++;
-        } catch (error) {
-          failed++;
-          console.error(`Ингредиент ${item.canonical_name}:`, error instanceof Error ? error.message : error);
-        }
-      }
-    } else {
-      for (let i = 0; i < batch.length; i++) {
-        const item = batch[i];
-        const displayName = parts[i];
-        const { error: catalogError } = await db.from("ingredients_catalog").update({ display_name_ru: displayName }).eq("id", item.id);
-        if (catalogError) throw catalogError;
-        const { error: rowsError } = await db.from("recipe_ingredients").update({ name_ru: displayName }).eq("ingredient_id", item.id);
-        if (rowsError) throw rowsError;
-        ingredientUpdated++;
-      }
-    }
+    const translated = await translateMany(batch.map((x) => x.text));
+    batch.forEach((entry, index) => {
+      const patch = recipePatches.get(entry.recipeId) ?? {};
+      patch[entry.field] = translated[index];
+      recipePatches.set(entry.recipeId, patch);
+    });
   } catch (error) {
-    // Do not turn a single rate limit into hundreds of immediate failures.
-    console.error(`Пакет ингредиентов ${start + 1}-${Math.min(start + batch.length, missingCatalog.length)}:`, error instanceof Error ? error.message : error);
     failed += batch.length;
+    console.error(`Пакет рецептов ${i + 1}/${recipeBatches.length}:`, error instanceof Error ? error.message : error);
   }
-  console.log(`Ингредиенты ${Math.min(start + batch.length, missingCatalog.length)}/${missingCatalog.length} оставшихся: updated=${ingredientUpdated}, failed=${failed}`);
+  if ((i + 1) % 5 === 0 || i + 1 === recipeBatches.length) {
+    console.log(`Перевод рецептов: пакет ${i + 1}/${recipeBatches.length}`);
+  }
 }
 
-// Each recipe is translated with one external request instead of up to three.
-for (let index = 0; index < recipes.length; index++) {
-  const recipe = recipes[index];
-  const needsName = !recipe.name_ru;
-  const needsDescription = Boolean(recipe.description && !recipe.description_ru);
-  const needsInstructions = Boolean(recipe.instructions && !recipe.instructions_ru);
-  if (!needsName && !needsDescription && !needsInstructions) continue;
-
-  try {
-    const fields = [];
-    if (needsName) fields.push(["name_ru", recipe.name]);
-    if (needsDescription) fields.push(["description_ru", recipe.description]);
-    if (needsInstructions) fields.push(["instructions_ru", recipe.instructions]);
-
-    const token = `<<<WTC_FIELD_${recipe.id.replaceAll("-", "_")}>>>`;
-    const translated = await translate(fields.map(([, text]) => text).join(`\n${token}\n`));
-    let parts = translated.split(token).map((x) => x.trim());
-
-    if (parts.length !== fields.length || parts.some((x) => !x)) {
-      parts = [];
-      for (const [, text] of fields) parts.push(await translate(text));
-    }
-
-    const patch = Object.fromEntries(fields.map(([field], i) => [field, parts[i]]));
-    const { error } = await db.from("recipes").update(patch).eq("id", recipe.id);
-    if (error) throw error;
-    recipeUpdated++;
-  } catch (error) {
+await mapLimit([...recipePatches.entries()], UPDATE_CONCURRENCY, async ([recipeId, patch]) => {
+  const { error } = await db.from("recipes").update(patch).eq("id", recipeId);
+  if (error) {
     failed++;
-    console.error(`Рецепт ${recipe.name}:`, error instanceof Error ? error.message : error);
+    console.error(`Не удалось сохранить рецепт ${recipeId}: ${error.message}`);
+    return;
   }
-
-  if ((index + 1) % 25 === 0) console.log(`Рецепты ${index + 1}/${recipes.length}: updated=${recipeUpdated}, failed=${failed}`);
-}
+  recipeUpdated++;
+});
 
 console.log(`Готово: recipes_updated=${recipeUpdated}, ingredients_updated=${ingredientUpdated}, failed=${failed}`);
 if (failed > 0) process.exitCode = 1;
