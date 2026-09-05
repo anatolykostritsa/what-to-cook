@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [feature/kitchen-dashboard]
+    branches: [main, feature/kitchen-dashboard]
   pull_request:
 
 jobs:
