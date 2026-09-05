@@ -9,10 +9,6 @@ const TRANSLATE_URL = "https://translate.googleapis.com/translate_a/single";
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const cache = new Map();
 
-function normalize(value) {
-  return (value ?? "").toLowerCase().replaceAll("ё", "е").replace(/\s+/g, " ").trim();
-}
-
 async function translate(text) {
   const value = (text ?? "").trim();
   if (!value) return null;
@@ -76,12 +72,15 @@ console.log(`Локализация: ${recipes.length} рецептов, ${catal
 
 for (let index = 0; index < catalog.length; index++) {
   const item = catalog[index];
-  if (item.display_name_ru) continue;
   try {
-    const displayName = await translate(item.canonical_name);
-    const { error } = await db.from("ingredients_catalog").update({ display_name_ru: displayName }).eq("id", item.id);
-    if (error) throw error;
-    ingredientUpdated++;
+    const displayName = item.display_name_ru || await translate(item.canonical_name);
+    if (!item.display_name_ru) {
+      const { error } = await db.from("ingredients_catalog").update({ display_name_ru: displayName }).eq("id", item.id);
+      if (error) throw error;
+      ingredientUpdated++;
+    }
+    const { error: ingredientRowsError } = await db.from("recipe_ingredients").update({ name_ru: displayName }).eq("ingredient_id", item.id);
+    if (ingredientRowsError) throw ingredientRowsError;
   } catch (error) {
     failed++;
     console.error(`Ингредиент ${item.canonical_name}:`, error instanceof Error ? error.message : error);
@@ -91,7 +90,7 @@ for (let index = 0; index < catalog.length; index++) {
 
 for (let index = 0; index < recipes.length; index++) {
   const recipe = recipes[index];
-  if (recipe.name_ru && (!recipe.instructions || recipe.instructions_ru)) continue;
+  if (recipe.name_ru && (!recipe.instructions || recipe.instructions_ru) && (!recipe.description || recipe.description_ru)) continue;
   try {
     const patch = {};
     if (!recipe.name_ru) patch.name_ru = await translate(recipe.name);
