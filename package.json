@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "test": "node --test scripts/*.test.mjs",
     "recipes:import": "node scripts/import-themealdb.mjs",
     "recipes:seed": "node scripts/import-themealdb.mjs --sample"
   },
