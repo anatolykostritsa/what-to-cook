@@ -104,6 +104,16 @@ async function buildPayload(meal) {
     normalizeImportedIngredient(meal.strCategory ?? ""),
     main,
   ].join("::");
+  const groupId = uuidFrom(groupKey);
+  const { data: primary, error: primaryError } = await db
+    .from("recipes")
+    .select("id")
+    .eq("canonical_group_id", groupId)
+    .eq("is_primary_variant", true)
+    .neq("external_id", meal.idMeal)
+    .limit(1)
+    .maybeSingle();
+  if (primaryError) throw primaryError;
 
   return {
     recipe: {
@@ -123,8 +133,8 @@ async function buildPayload(meal) {
       source_name: "TheMealDB",
       source_url: `https://www.themealdb.com/meal/${meal.idMeal}`,
       external_id: meal.idMeal,
-      canonical_group_id: uuidFrom(groupKey),
-      is_primary_variant: true,
+      canonical_group_id: groupId,
+      is_primary_variant: !primary,
     },
     ingredients,
   };
