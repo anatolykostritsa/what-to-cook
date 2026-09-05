@@ -8,7 +8,8 @@
     "start": "next start",
     "test": "node --test scripts/*.test.mjs",
     "recipes:import": "node scripts/import-themealdb.mjs",
-    "recipes:seed": "node scripts/import-themealdb.mjs --sample"
+    "recipes:seed": "node scripts/import-themealdb.mjs --sample",
+    "recipes:localize-ru": "node scripts/localize-recipes-ru.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",
