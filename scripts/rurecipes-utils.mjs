@@ -68,22 +68,14 @@ export function parseRussianIngredientLine(line) {
   const measure = (match?.[2] ?? "").trim();
   const name = cleanIngredientName(sourceName);
   if (!name) return null;
-
   if (!measure) return { name, display_name: name, quantity: null, unit: null, optional: false, raw_measure: null };
+
   const qualitative = /^(по вкусу|по желанию|для жарки|для подачи|сколько потребуется|по необходимости)/i.test(measure);
   if (qualitative) {
-    return {
-      name,
-      display_name: name,
-      quantity: null,
-      unit: measure,
-      optional: /по желанию|для подачи/i.test(measure),
-      raw_measure: measure,
-    };
+    return { name, display_name: name, quantity: null, unit: measure, optional: /по желанию|для подачи/i.test(measure), raw_measure: measure };
   }
 
-  const range = measure.match(/^(\d+(?:[.,]\d+)?)\s*[-–—]\s*(\d+(?:[.,]\d+)?)(?:\s+|$)(.*)$/);
-  if (range) {
+  if (/^(\d+(?:[.,]\d+)?)\s*[-–—]\s*(\d+(?:[.,]\d+)?)(?:\s+|$)/.test(measure)) {
     return { name, display_name: name, quantity: null, unit: measure, optional: false, raw_measure: measure };
   }
 
@@ -91,31 +83,28 @@ export function parseRussianIngredientLine(line) {
   if (!numberMatch) {
     const wordNumber = measure.match(/^(пара|пол(?:овина)?)(?:\s+|$)(.*)$/i);
     if (wordNumber) {
-      const quantity = /^пара$/i.test(wordNumber[1]) ? 2 : 0.5;
-      return { name, display_name: name, quantity, unit: normalizeRussianUnit(wordNumber[2]), optional: false, raw_measure: measure };
+      return { name, display_name: name, quantity: /^пара$/i.test(wordNumber[1]) ? 2 : 0.5, unit: normalizeRussianUnit(wordNumber[2]), optional: false, raw_measure: measure };
     }
     return { name, display_name: name, quantity: null, unit: measure, optional: false, raw_measure: measure };
   }
 
-  const quantity = parseNumberToken(numberMatch[1]);
-  const unit = normalizeRussianUnit(numberMatch[2]);
-  return { name, display_name: name, quantity, unit, optional: false, raw_measure: measure };
+  return { name, display_name: name, quantity: parseNumberToken(numberMatch[1]), unit: normalizeRussianUnit(numberMatch[2]), optional: false, raw_measure: measure };
 }
 
 export function inferCategory(title, description = "") {
   const text = normalizeRussianText(`${title} ${description}`);
   const rules = [
-    ["Супы", /\b(суп|борщ|щи|солянк|уха|окрошк|харчо|рассольник)\b/],
-    ["Салаты", /\b(салат|винегрет)\b/],
-    ["Выпечка", /\b(пирог|пирожк|булочк|хлеб|кекс|печень|блин|олад|ватруш|шарлот|тесто)\b/],
-    ["Десерты", /\b(десерт|торт|мусс|желе|морожен|конфет|суфле|крем|пудинг)\b/],
-    ["Завтраки", /\b(завтрак|омлет|яичниц|каша|сырник|гренк)\b/],
-    ["Рыба и морепродукты", /\b(рыб|лосос|семг|форел|скумбри|треск|кревет|кальмар|мид|тунец)\b/],
-    ["Птица", /\b(куриц|курин|индейк|утк|гус)\b/],
-    ["Мясо", /\b(говядин|свинин|баранин|теляти|мяс|фарш|котлет|стейк)\b/],
-    ["Закуски", /\b(закуск|бутерброд|канапе|паштет|намазк)\b/],
-    ["Гарниры", /\b(гарнир|картоф|рис|гречк|макарон|пюре)\b/],
-    ["Напитки", /\b(напиток|компот|морс|лимонад|коктейль|смузи|чай|кофе)\b/],
+    ["Супы", /(суп|борщ|щи|солянк|уха|окрошк|харчо|рассольник)/],
+    ["Салаты", /(салат|винегрет)/],
+    ["Выпечка", /(пирог|пирожк|булочк|хлеб|кекс|печень|блин|олад|ватруш|шарлот|тесто)/],
+    ["Десерты", /(десерт|торт|мусс|желе|морожен|конфет|суфле|крем|пудинг)/],
+    ["Завтраки", /(завтрак|омлет|яичниц|каша|сырник|гренк)/],
+    ["Рыба и морепродукты", /(рыб|лосос|семг|форел|скумбри|треск|кревет|кальмар|мид|тунец)/],
+    ["Птица", /(куриц|курин|индейк|утк|гус)/],
+    ["Мясо", /(говядин|свинин|баранин|теляти|мяс|фарш|котлет|стейк)/],
+    ["Закуски", /(закуск|бутерброд|канапе|паштет|намазк)/],
+    ["Гарниры", /(гарнир|картоф|рис|гречк|макарон|пюре)/],
+    ["Напитки", /(напиток|компот|морс|лимонад|коктейль|смузи|чай|кофе)/],
   ];
   return rules.find(([, rule]) => rule.test(text))?.[0] ?? "Другие";
 }
@@ -123,11 +112,10 @@ export function inferCategory(title, description = "") {
 export function inferCuisine(title, description = "") {
   const text = normalizeRussianText(`${title} ${description}`);
   const rules = [
-    ["Русская", /\bрусск/], ["Украинская", /\bукраин/], ["Белорусская", /\bбелорус/],
-    ["Грузинская", /\bгрузин/], ["Армянская", /\bармян/], ["Итальянская", /\bитальян/],
-    ["Французская", /\bфранцуз/], ["Китайская", /\bкитай/], ["Японская", /\bяпон/],
-    ["Корейская", /\bкорей/], ["Мексиканская", /\bмексикан/], ["Турецкая", /\bтурец/],
-    ["Индийская", /\bиндий/], ["Греческая", /\bгреческ/], ["Американская", /\bамерикан/],
+    ["Русская", /русск/], ["Украинская", /украин/], ["Белорусская", /белорус/], ["Грузинская", /грузин/],
+    ["Армянская", /армян/], ["Итальянская", /итальян/], ["Французская", /француз/], ["Китайская", /китай/],
+    ["Японская", /япон/], ["Корейская", /корей/], ["Мексиканская", /мексикан/], ["Турецкая", /турец/],
+    ["Индийская", /индий/], ["Греческая", /греческ/], ["Американская", /американ/],
   ];
   return rules.find(([, rule]) => rule.test(text))?.[0] ?? null;
 }
@@ -142,7 +130,6 @@ export function scoreRecipe(row) {
   if (steps.length < 2 || instructionsLength < 120) return -Infinity;
   const parsed = ingredients.map(parseRussianIngredientLine).filter(Boolean);
   if (parsed.length < Math.max(3, Math.ceil(ingredients.length * 0.75))) return -Infinity;
-
   let score = 0;
   if (row.image_link) score += 12;
   if (row.description && String(row.description).length >= 40) score += 8;
