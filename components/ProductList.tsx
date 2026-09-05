@@ -1,6 +1,6 @@
 "use client";
 
-type Product = { id: string; name: string; quantity: number | null; unit: string | null; category: string | null; expiry_date: string | null; ingredient_id: string | null; ingredient_match_group?: string | null; ingredient_family_key?: string | null };
+type Product = { id: string; name: string; quantity: number | null; unit: string | null; category: string | null; expiry_date: string | null; ingredient_id: string | null; ingredient_match_group: string | null; ingredient_family_key: string | null };
 
 function getExpiryState(date: string | null) {
   if (!date) return { text: "Без срока", className: "expiry-normal" };
