@@ -40,9 +40,7 @@ export default function AuthForm() {
           password,
         });
 
-        if (error) {
-          throw error;
-        }
+        if (error) throw error;
 
         router.push("/kitchen");
         router.refresh();
@@ -50,16 +48,15 @@ export default function AuthForm() {
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/auth/callback`,
+          },
         });
 
-        if (error) {
-          throw error;
-        }
+        if (error) throw error;
 
         if (!data.session) {
-          setMessage(
-            "Аккаунт создан. Проверьте почту для подтверждения email."
-          );
+          setMessage("Аккаунт создан. Проверьте почту для подтверждения email.");
           return;
         }
 
@@ -67,11 +64,7 @@ export default function AuthForm() {
         router.refresh();
       }
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Произошла неизвестная ошибка."
-      );
+      setError(err instanceof Error ? err.message : "Произошла неизвестная ошибка.");
     } finally {
       setLoading(false);
     }
@@ -125,27 +118,16 @@ export default function AuthForm() {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             placeholder="Минимум 6 символов"
-            autoComplete={
-              mode === "login" ? "current-password" : "new-password"
-            }
+            autoComplete={mode === "login" ? "current-password" : "new-password"}
             disabled={loading}
           />
         </label>
 
         {error && <div className="form-error">{error}</div>}
-
         {message && <div className="form-message">{message}</div>}
 
-        <button
-          type="submit"
-          className="primary-button"
-          disabled={loading}
-        >
-          {loading
-            ? "Подождите..."
-            : mode === "login"
-              ? "Войти"
-              : "Создать аккаунт"}
+        <button type="submit" className="primary-button" disabled={loading}>
+          {loading ? "Подождите..." : mode === "login" ? "Войти" : "Создать аккаунт"}
         </button>
       </form>
     </div>

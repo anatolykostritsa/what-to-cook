@@ -1,94 +1,29 @@
 "use client";
 
-type Product = {
-  id: string;
-  name: string;
-  quantity: number | null;
-  unit: string | null;
-  category: string | null;
-  expiry_date: string | null;
-};
+type Product = { id: string; name: string; quantity: number | null; unit: string | null; category: string | null; expiry_date: string | null; ingredient_id: string | null };
 
-function getExpiryText(date: string | null) {
-  if (!date) {
-    return "Без срока годности";
-  }
-
-  const today = new Date();
-
-  today.setHours(0, 0, 0, 0);
-
+function getExpiryState(date: string | null) {
+  if (!date) return { text: "Без срока", className: "expiry-normal" };
+  const today = new Date(); today.setHours(0, 0, 0, 0);
   const expiry = new Date(`${date}T00:00:00`);
-
-  const diff =
-    Math.ceil(
-      (expiry.getTime() - today.getTime()) /
-        (1000 * 60 * 60 * 24)
-    );
-
-  if (diff < 0) {
-    return "⚠️ Срок истёк";
-  }
-
-  if (diff === 0) {
-    return "🔥 Использовать сегодня";
-  }
-
-  if (diff === 1) {
-    return "⏰ Использовать завтра";
-  }
-
-  if (diff <= 3) {
-    return `⏰ Осталось ${diff} дн.`;
-  }
-
-  return `Осталось ${diff} дн.`;
+  const diff = Math.ceil((expiry.getTime() - today.getTime()) / 86400000);
+  if (diff < 0) return { text: "Срок истёк", className: "expiry-danger" };
+  if (diff === 0) return { text: "Сегодня", className: "expiry-danger" };
+  if (diff === 1) return { text: "Завтра", className: "expiry-warning" };
+  if (diff <= 3) return { text: `${diff} дн.`, className: "expiry-warning" };
+  return { text: `${diff} дн.`, className: "expiry-normal" };
 }
 
-export default function ProductList({
-  products,
-  onDelete,
-}: {
-  products: Product[];
-  onDelete: (id: string) => void;
-}) {
-  if (!products.length) {
-    return (
-      <div className="empty-state">
-        Пока продуктов нет.
-        <br />
-        Добавьте то, что сейчас лежит дома.
-      </div>
-    );
-  }
-
-  return (
-    <div className="item-list">
-      {products.map((product) => (
-        <div className="product-item" key={product.id}>
-          <div className="product-main">
-            <strong>{product.name}</strong>
-
-            <span className="muted">
-              {product.quantity !== null
-                ? `${product.quantity} ${product.unit ?? ""}`
-                : ""}
-            </span>
-          </div>
-
-          <div className="product-expiry">
-            {getExpiryText(product.expiry_date)}
-          </div>
-
-          <button
-            className="delete-button"
-            onClick={() => onDelete(product.id)}
-            aria-label="Удалить продукт"
-          >
-            ×
-          </button>
-        </div>
-      ))}
-    </div>
-  );
+export default function ProductList({ products, onDelete, onEdit }: { products: Product[]; onDelete: (id: string) => void; onEdit: (product: Product) => void }) {
+  if (!products.length) return <div className="empty-state">Пока продуктов нет.<br />Добавьте то, что сейчас лежит дома.</div>;
+  return <div className="item-list">
+    {products.map((product) => {
+      const expiry = getExpiryState(product.expiry_date);
+      return <div className="product-item" key={product.id}>
+        <div className="product-main"><strong>{product.name}</strong><span className="muted">{product.quantity !== null ? `${product.quantity} ${product.unit ?? ""}`.trim() : "Количество не указано"}{product.category ? ` · ${product.category}` : ""}</span></div>
+        <span className={`product-expiry ${expiry.className}`}>{expiry.text}</span>
+        <div className="product-actions"><button className="icon-button" onClick={() => onEdit(product)} aria-label={`Редактировать ${product.name}`}>✎</button><button className="delete-button" onClick={() => onDelete(product.id)} aria-label={`Удалить ${product.name}`}>×</button></div>
+      </div>;
+    })}
+  </div>;
 }

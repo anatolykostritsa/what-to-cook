@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "node --test scripts/*.test.mjs",
+    "recipes:import": "node scripts/import-themealdb.mjs",
+    "recipes:seed": "node scripts/import-themealdb.mjs --sample"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",
@@ -13,5 +16,10 @@
     "next": "^15.5.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "20.17.6",
+    "@types/react": "19.2.18",
+    "typescript": "5.8.2"
   }
 }

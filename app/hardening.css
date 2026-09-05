@@ -1,0 +1,70 @@
+.recipe-card h3,
+.dashboard-line strong,
+.product-card strong,
+.shopping-item strong,
+.recipe-instructions,
+.recipe-description,
+.edit-modal,
+.dashboard-card {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.catalog-load-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 18px;
+}
+
+@media (max-width: 768px) {
+  button,
+  .primary-button,
+  .secondary-button,
+  .icon-button,
+  .delete-button,
+  .modal-close,
+  .favorite-button,
+  .icon-add-button,
+  .quick-actions button,
+  .app-tabs button {
+    min-height: 44px;
+  }
+
+  .icon-button,
+  .delete-button,
+  .modal-close,
+  .favorite-button {
+    min-width: 44px;
+  }
+
+  .app-page,
+  .dashboard-card,
+  .edit-modal,
+  .recipe-card,
+  .recipe-toolbar,
+  .ingredient-row {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .recipe-grid,
+  .home-grid,
+  .dashboard-grid,
+  .catalog-selects,
+  .product-form-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ingredient-row {
+    flex-wrap: wrap;
+  }
+
+  .ingredient-row > * {
+    min-width: 0;
+  }
+
+  .recipe-hero {
+    max-width: 100%;
+    height: auto;
+  }
+}

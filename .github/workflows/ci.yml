@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [feature/kitchen-dashboard]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: build-placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      - run: npx tsc --noEmit
+      - run: npm run build
+      - run: git diff --check
