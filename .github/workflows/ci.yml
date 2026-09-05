@@ -18,6 +18,7 @@ jobs:
           node-version: 24
       - run: npm install --no-audit --no-fund
       - run: npm test
+      - run: npm run recipes:import:dry-run
       - run: npx tsc --noEmit
       - run: npm run build
       - run: git diff --check
