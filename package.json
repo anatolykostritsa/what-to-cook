@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "test": "node --test scripts/*.test.mjs",
-    "recipes:import": "node scripts/import-themealdb.mjs",
+    "recipes:import": "node scripts/import-rurecipes.mjs",
+    "recipes:replace-ru": "node scripts/import-rurecipes.mjs --replace --target=3000 --candidate-pages=140",
+    "recipes:import:dry-run": "node scripts/import-rurecipes.mjs --dry-run --target=120 --candidate-pages=12",
+    "recipes:import:themealdb": "node scripts/import-themealdb.mjs",
     "recipes:seed": "node scripts/import-themealdb.mjs --sample",
     "recipes:localize-ru": "node scripts/localize-recipes-ru.mjs"
   },
