@@ -26,6 +26,13 @@ test("keeps ranges without fake precision", () => {
   assert.equal(parsed.unit, "2-3 шт.");
 });
 
+test("rejects punctuation-only and section marker rows", () => {
+  assert.equal(parseRussianIngredientLine("*"), null);
+  assert.equal(parseRussianIngredientLine("---"), null);
+  assert.equal(parseRussianIngredientLine("Ингредиенты"), null);
+  assert.equal(parseRussianIngredientLine("Для соуса"), null);
+});
+
 test("normalizes russian text and detects category", () => {
   assert.equal(normalizeRussianText("  Куриное ФИЛЕ, ёлки! "), "куриное филе елки");
   assert.equal(inferCategory("Куриный суп с лапшой"), "Супы");
