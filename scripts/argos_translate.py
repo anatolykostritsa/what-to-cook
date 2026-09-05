@@ -4,6 +4,17 @@ import sys
 from argostranslate import package, translate
 
 
+# Windows PowerShell can expose cp1252 to redirected Python stdout even when the
+# terminal itself displays Cyrillic. The Node parent expects UTF-8 JSON lines.
+for stream in (sys.stdin, sys.stdout, sys.stderr):
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure:
+        try:
+            reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
+
 def get_translation():
     installed = translate.get_installed_languages()
     source = next((language for language in installed if language.code == "en"), None)
@@ -48,7 +59,10 @@ def main():
             response = {"id": request_id, "translations": translations}
         except Exception as error:
             response = {"id": request_id, "error": str(error)}
-        print(json.dumps(response, ensure_ascii=False), flush=True)
+
+        # ensure_ascii=True is intentionally redundant with UTF-8 stdout: even if
+        # Windows changes the stream encoding, the JSON transport remains ASCII-safe.
+        print(json.dumps(response, ensure_ascii=True), flush=True)
 
 
 if __name__ == "__main__":
