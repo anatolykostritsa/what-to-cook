@@ -5,6 +5,8 @@ export type InventoryProduct = {
   unit: string | null;
   expiry_date?: string | null;
   ingredient_id?: string | null;
+  ingredient_match_group?: string | null;
+  ingredient_family_key?: string | null;
 };
 
 export type InventoryIngredient = {
@@ -14,6 +16,8 @@ export type InventoryIngredient = {
   unit: string | null;
   optional?: boolean | null;
   ingredient_id?: string | null;
+  ingredient_match_group?: string | null;
+  ingredient_family_key?: string | null;
 };
 
 export type CanonicalUnit = "г" | "мл" | "шт" | string;
@@ -27,13 +31,28 @@ export function namesMatch(left: string, right: string) {
 }
 
 export function ingredientsMatch(
-  ingredient: Pick<InventoryIngredient, "name" | "ingredient_id">,
-  product: Pick<InventoryProduct, "name" | "ingredient_id">,
+  ingredient: Pick<InventoryIngredient, "name" | "ingredient_id" | "ingredient_match_group">,
+  product: Pick<InventoryProduct, "name" | "ingredient_id" | "ingredient_match_group">,
 ) {
   if (ingredient.ingredient_id && product.ingredient_id) {
+    if (ingredient.ingredient_match_group && product.ingredient_match_group) {
+      return ingredient.ingredient_match_group === product.ingredient_match_group;
+    }
     return ingredient.ingredient_id === product.ingredient_id;
   }
   return namesMatch(ingredient.name, product.name);
+}
+
+export function ingredientsRelated(
+  ingredient: Pick<InventoryIngredient, "ingredient_family_key" | "ingredient_match_group">,
+  product: Pick<InventoryProduct, "ingredient_family_key" | "ingredient_match_group">,
+) {
+  return Boolean(
+    ingredient.ingredient_family_key &&
+      product.ingredient_family_key &&
+      ingredient.ingredient_family_key === product.ingredient_family_key &&
+      ingredient.ingredient_match_group !== product.ingredient_match_group,
+  );
 }
 
 export function normalizeUnit(unit: string | null | undefined): CanonicalUnit | null {
@@ -59,9 +78,9 @@ export function fromCanonical(quantity: number, originalUnit: string | null | un
 }
 
 export function assessIngredient(ingredient: InventoryIngredient, products: InventoryProduct[], factor = 1) {
-  const matching = products.filter(
-    (product) => ingredientsMatch(ingredient, product) && (!product.expiry_date || daysUntilExpiry(product.expiry_date) >= 0),
-  );
+  const validProducts = products.filter((product) => !product.expiry_date || daysUntilExpiry(product.expiry_date) >= 0);
+  const matching = validProducts.filter((product) => ingredientsMatch(ingredient, product));
+  const relatedProducts = validProducts.filter((product) => !ingredientsMatch(ingredient, product) && ingredientsRelated(ingredient, product));
 
   if (ingredient.quantity === null) {
     return {
@@ -71,6 +90,7 @@ export function assessIngredient(ingredient: InventoryIngredient, products: Inve
       unit: normalizeUnit(ingredient.unit),
       deficit: null,
       deductions: [] as { ingredient_id: string; product_id: string; quantity: number }[],
+      relatedProducts,
     };
   }
 
@@ -102,6 +122,7 @@ export function assessIngredient(ingredient: InventoryIngredient, products: Inve
     unit: needed.unit,
     deficit: Math.max(0, remaining),
     deductions,
+    relatedProducts,
   };
 }
 
