@@ -67,7 +67,10 @@ export function parseRussianIngredientLine(line) {
   const sourceName = (match?.[1] ?? raw).trim();
   const measure = (match?.[2] ?? "").trim();
   const name = cleanIngredientName(sourceName);
-  if (!name) return null;
+  const normalizedName = normalizeRussianText(name);
+  if (!name || !normalizedName) return null;
+  if (!/[a-zа-я]/i.test(normalizedName)) return null;
+  if (/^(ингредиенты?|продукты?|для соуса|для подачи|для украшения)$/i.test(normalizedName)) return null;
   if (!measure) return { name, display_name: name, quantity: null, unit: null, optional: false, raw_measure: null };
 
   const qualitative = /^(по вкусу|по желанию|для жарки|для подачи|сколько потребуется|по необходимости)/i.test(measure);
